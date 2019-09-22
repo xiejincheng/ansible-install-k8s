@@ -1,0 +1,36 @@
+---
+- name: 创建临时目录
+  file: dest={{ tmp_dir }} state=directory
+
+- name: 拷贝docker二进制包
+  copy: src=docker-{{ docker_version }}.tgz dest={{ tmp_dir }}
+
+- name: 解压docker二进制包
+  shell: cd {{ tmp_dir }} && \
+         tar zxf docker-{{ docker_version }}.tgz && \
+         cp -rf docker/* /usr/bin
+
+- name: 拷贝service文件
+  copy: src=docker.service dest=/usr/lib/systemd/system/
+  notify:
+    - reload systemd
+    - restart docker
+
+- name: 创建目录
+  file: dest=/etc/docker state=directory
+
+- name: 配置docker
+  copy: src=daemon.json dest=/etc/docker/daemon.json
+  notify:
+    - reload systemd
+    - restart docker
+
+- meta: flush_handlers
+
+- name: 启动docker
+  service: name=docker state=started enabled=yes
+
+- name: 查看状态
+  shell: docker info
+  register: docker 
+- debug: var=docker.stdout_lines

@@ -1,0 +1,50 @@
+---
+- name: 创建工作目录
+  file: dest={{ etcd_work_dir }}/{{ item }} state=directory
+  with_items:
+    - bin
+    - cfg
+    - ssl
+
+- name: 创建临时目录
+  file: dest={{ tmp_dir }} state=directory
+
+- name: 拷贝安装包
+  copy: src=etcd-v{{ etcd_version }}-linux-amd64.tar.gz dest={{ tmp_dir }}
+
+- name: 安装etcd
+  shell: cd {{ tmp_dir }} && \
+         tar zxf etcd-v{{ etcd_version }}-linux-amd64.tar.gz && \
+         cp -rf etcd-v{{ etcd_version }}-linux-amd64/{etcd,etcdctl} {{ etcd_work_dir }}/bin
+
+- name: 拷贝证书
+  copy: src=etcd_cert/{{ item }} dest={{ etcd_work_dir }}/ssl
+  with_items:
+    - ca.pem
+    - server.pem
+    - server-key.pem
+
+- name: 拷贝etcd配置文件
+  template: src=etcd.conf.j2 dest={{ etcd_work_dir }}/cfg/etcd.conf
+  notify:
+    - restart etcd
+
+- name: 拷贝service文件
+  template: src=etcd.service.j2 dest=/usr/lib/systemd/system/etcd.service
+  notify:
+    - reload systemd
+    - restart etcd
+    
+- name: 启动etcd
+  service: name=etcd state=started enabled=yes
+
+- name: 拷贝etcd脚本
+  template: src=etcd.sh.j2 dest={{ tmp_dir }}/etcd.sh mode=u+x
+
+- name: 获取etcd集群状态
+  shell: /bin/bash {{ tmp_dir }}/etcd.sh cluster-health
+  register: status 
+- debug: var=status.stdout_lines
+
+- name: 向etcd写入flannel子网
+  shell: /bin/bash {{ tmp_dir }}/etcd.sh write-subnet

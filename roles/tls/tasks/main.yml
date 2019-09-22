@@ -1,0 +1,46 @@
+---
+- name: 查看状态
+  shell: pwd |sed 's#roles/tls##' 
+  register: root_dir 
+- debug: var=root_dir.stdout_lines
+
+- name: 创建工作目录
+  file: dest={{ root_dir.stdout }}/ssl/{{ item }} state=directory
+  with_items:
+    - etcd
+    - k8s
+
+- name: 拷贝cfssl工具
+  copy: src={{ item }} dest=/usr/bin/ mode=u+x
+  with_items:
+    - cfssl  
+    - cfssl-certinfo  
+    - cfssljson
+
+- name: 拷贝etcd证书请求文件
+  template: src=etcd/{{ item }} dest={{ root_dir.stdout }}/ssl/etcd/{{ item.split('.')[:-1]|join('.') }}
+  with_items:
+    - ca-config.json.j2
+    - ca-csr.json.j2
+    - server-csr.json.j2
+
+- name: 拷贝生成etcd证书脚本
+  copy: src=generate_etcd_cert.sh dest={{ root_dir.stdout }}/ssl/etcd mode=u+x
+
+- name: 生成etcd证书
+  shell: cd {{ root_dir.stdout }}/ssl/etcd && /bin/bash generate_etcd_cert.sh
+
+- name: 拷贝k8s证书请求文件
+  template: src=k8s/{{ item }} dest={{ root_dir.stdout }}/ssl/k8s/{{ item.split('.')[:-1]|join('.') }}
+  with_items:
+    - ca-config.json.j2  
+    - ca-csr.json.j2  
+    - server-csr.json.j2
+    - admin-csr.json.j2
+    - kube-proxy-csr.json.j2  
+
+- name: 拷贝生成k8s证书脚本
+  copy: src=generate_k8s_cert.sh dest={{ root_dir.stdout }}/ssl/k8s mode=u+x
+
+- name: 生成k8s证书 
+  shell: cd {{ root_dir.stdout }}/ssl/k8s && /bin/bash generate_k8s_cert.sh

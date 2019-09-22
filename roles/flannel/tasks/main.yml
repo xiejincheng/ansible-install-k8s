@@ -1,0 +1,58 @@
+---
+
+- name: 创建工作目录
+  file: dest={{ k8s_work_dir }}/{{ item }} state=directory
+  with_items:
+    - bin
+    - cfg
+    - ssl
+    - logs
+
+- name: 创建工作目录
+  file: dest={{ k8s_work_dir }}/ssl/etcd state=directory
+
+- name: 创建临时目录
+  file: dest={{ tmp_dir }} state=directory
+
+- name: 拷贝安装包
+  copy: src=flannel-v{{ flannel_version }}-linux-amd64.tar.gz dest={{ tmp_dir }}
+
+- name: 安装flannel
+  shell: cd {{ tmp_dir }} && \
+         tar zxf flannel-v{{ flannel_version }}-linux-amd64.tar.gz && \
+         cp -rf {flanneld,mk-docker-opts.sh} {{ k8s_work_dir }}/bin
+
+- name: 拷贝etcd证书
+  copy: src=etcd_cert/{{ item }} dest={{ k8s_work_dir }}/ssl/etcd
+  with_items:
+    - ca.pem
+    - server.pem
+    - server-key.pem
+
+- name: 拷贝flannel配置文件
+  template: src=flanneld.conf.j2 dest={{ k8s_work_dir }}/cfg/flanneld.conf
+  notify:
+    - reload systemd
+    - restart flanneld
+
+- name: 拷贝flannel service文件
+  template: src=flanneld.service.j2 dest=/usr/lib/systemd/system/flanneld.service
+  notify:
+    - reload systemd
+    - restart flanneld
+
+- name: 拷贝docker service文件
+  copy: src=docker.service dest=/usr/lib/systemd/system/
+  notify:
+    - reload systemd
+    - restart flanneld
+    - restart docker
+    
+- name: 启动flannel
+  service: name=flanneld state=started enabled=yes
+
+- name: 查看网卡信息
+  shell: ip addr |egrep "docker0|flannel"
+  register: nic
+
+- debug: var=nic.stdout_lines

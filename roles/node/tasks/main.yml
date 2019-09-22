@@ -1,0 +1,66 @@
+---
+- name: 创建工作目录
+  file: dest={{ k8s_work_dir }}/{{ item }} state=directory
+  with_items:
+    - bin
+    - cfg
+    - ssl
+    - logs
+
+- name: 创建临时目录
+  file: dest={{ tmp_dir }} state=directory
+
+- name: 拷贝二进制包
+  copy: src=node-binary.tar.gz dest={{ tmp_dir }}
+
+- name: 移动二进制包
+  shell: cd {{ tmp_dir }} && \
+         tar zxf node-binary.tar.gz && \
+         cp -rf kubelet kube-proxy {{ k8s_work_dir }}/bin && \
+         chmod +x {{ k8s_work_dir }}/bin/*
+
+- name: 拷贝k8s证书
+  copy: src=k8s_cert/{{ item }} dest={{ k8s_work_dir }}/ssl
+  with_items:
+    - ca.pem
+    - kube-proxy.pem
+    - kube-proxy-key.pem
+
+- name: 拷贝k8s配置文件
+  template: src={{ item }} dest={{ k8s_work_dir }}/cfg/{{ item.split('.')[:-1]|join('.') }}
+  with_items:
+    - bootstrap.kubeconfig.j2
+    - kubelet.conf.j2
+    - kubelet-config.yml.j2
+    - kube-proxy.kubeconfig.j2
+    - kube-proxy.conf.j2
+    - kube-proxy-config.yml.j2
+  notify:
+    - restart kubelet
+    - restart kube-proxy
+
+- name: 拷贝service文件
+  template: src={{ item }} dest=/usr/lib/systemd/system/{{ item.split('.')[:-1]|join('.') }}
+  with_items:
+    - kubelet.service.j2
+    - kube-proxy.service.j2
+  notify:
+    - reload systemd
+    - restart kubelet
+    - restart kube-proxy
+    
+- name: 启动k8s node
+  service: name={{ item }} state=started enabled=yes
+  with_items:
+    - kubelet
+    - kube-proxy
+
+- name: 拷贝镜像
+  copy: src=image.tar.gz dest={{ tmp_dir }}
+
+- name: 预导入镜像
+  shell: cd {{ tmp_dir }} && \
+         tar zxf image.tar.gz && \
+         docker load < pause.tar && \
+         docker load < coredns.tar && \
+         docker load < dashboard.tar
